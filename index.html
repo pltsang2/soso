@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>眼動儀追視遊戲 V13</title>
+    <style>
+        body, html {
+            margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #000; 
+        }
+        
+        /* 設定面板 */
+        #settings-panel {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(255, 255, 255, 0.95); z-index: 100; overflow-y: auto;
+            display: flex; flex-direction: column; align-items: center; padding: 20px; box-sizing: border-box;
+        }
+        .setting-group {
+            background: #f4f4f9; padding: 15px; margin: 10px; border-radius: 10px; width: 100%; max-width: 650px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .setting-group h3 { margin-top: 0; border-bottom: 2px solid #ddd; padding-bottom: 5px; }
+        .row { display: flex; justify-content: space-between; margin-bottom: 10px; align-items: center; flex-wrap: wrap; gap: 10px; }
+        .audio-upload-group { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+        
+        button {
+            padding: 10px 20px; font-size: 16px; border: none; border-radius: 5px; background: #007bff; color: white; cursor: pointer;
+        }
+        button:hover { background: #0056b3; }
+        button.record-btn { background: #dc3545; white-space: nowrap; }
+        button.record-btn.recording { animation: pulse 1s infinite; }
+        
+        /* 遊戲區域 */
+        #game-area {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: none;
+        }
+        
+        /* 目標圖案 */
+        #target {
+            position: absolute; background-size: contain; background-repeat: no-repeat; background-position: center;
+            border-radius: 50%; transition: transform 0.2s;
+        }
+        
+        /* 特效 CSS 類別 */
+        .effect-glow {
+            filter: drop-shadow(0 0 5px #ffffff) drop-shadow(0 0 10px #ffffff) drop-shadow(0 0 20px #ffffff) drop-shadow(0 0 30px #ffffff) !important;
+        }
+        .effect-remove-bg {
+            mix-blend-mode: multiply; filter: contrast(1.1);
+        }
+        .effect-looking {
+            filter: drop-shadow(0 0 10px yellow) drop-shadow(0 0 30px yellow) brightness(1.3) !important;
+            transform: scale(1.1);
+        }
+
+        /* 煙花畫布 */
+        #fireworks-canvas {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 50;
+        }
+
+        /* 成功圖片與倒數計時 */
+        #success-popup, #final-complete-popup {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) scale(0);
+            z-index: 60; transition: transform 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            max-width: 80%; max-height: 80%; display: none;
+        }
+        #final-complete-popup { z-index: 70; }
+        
+        #success-popup.show, #final-complete-popup.show {
+            transform: translate(-50%, -50%) scale(1); display: block;
+        }
+
+        #countdown-text {
+            position: absolute; top: 85%; left: 50%; transform: translate(-50%, -50%);
+            font-size: 24px; font-weight: bold; color: #fff; background: rgba(0,0,0,0.6);
+            padding: 10px 20px; border-radius: 30px; z-index: 65; display: none;
+        }
+
+        /* 緊急重置按鈕 (極小、半透明) */
+        #emergency-reset {
+            position: absolute; top: 5px; right: 5px; width: 15px; height: 15px;
+            background: rgba(255, 255, 255, 0.2); border-radius: 50%; z-index: 1000;
+            cursor: pointer; opacity: 0.3;
+        }
+        #emergency-reset:hover { background: rgba(255, 0, 0, 0.8); opacity: 1; }
+
+        /* 再次挑戰面板 */
+        #replay-modal {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            background: rgba(255, 255, 255, 0.98); padding: 30px; border-radius: 15px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.4); z-index: 90; text-align: center;
+            display: none; flex-direction: column; gap: 15px; min-width: 320px;
+        }
+        #replay-modal h2 { margin-top: 0; color: #333; }
+        #replay-modal button { font-size: 18px; padding: 15px; font-weight: bold; }
+        .btn-horizontal { background: #28a745; }
+        .btn-vertical { background: #17a2b8; }
+        .btn-random { background: #fd7e14; }
+        .btn-menu { background: #6c757d; margin-top: 10px; }
+
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); background: #ff4d4d; }
+            100% { transform: scale(1); }
+        }
+    </style>
+</head>
+<body>
+
+    <audio id="reminder-audio" style="display:none;"></audio>
+    <audio id="success-audio" style="display:none;"></audio>
+    <audio id="final-audio" style="display:none;"></audio>
+
+    <div id="settings-panel">
+        <h1>👁️ 眼動儀追視遊戲 V13</h1>
+        
+        <div class="setting-group">
+            <h3>1. 視覺設定</h3>
+            <div class="row">
+                <label>追視圖案上傳 (可多選):</label>
+                <div style="text-align: right;">
+                    <input type="file" id="image-upload" accept="image/*" multiple>
+                    <div id="upload-status" style="font-size: 14px; color: #007bff; margin-top: 5px; font-weight: bold;">尚未上傳</div>
+                </div>
+            </div>
+            <div class="row">
+                <label>圖案顯示模式:</label>
+                <select id="image-mode">
+                    <option value="single">單一圖片 (固定使用第一張)</option>
+                    <option value="random">隨機圖片 (每回合隨機切換)</option>
+                </select>
+            </div>
+            <div class="row">
+                <label>圖案大小 (px):</label>
+                <input type="range" id="size-slider" min="50" max="1000" value="150">
+                <span id="size-val">150</span>
+            </div>
+            <div class="row">
+                <label>圖案終極特效:</label>
+                <div>
+                    <input type="checkbox" id="glow-effect" checked> <label for="glow-effect" style="margin-right: 15px; font-weight:bold; color:#0056b3;">極強白邊發光</label>
+                    <input type="checkbox" id="remove-bg"> <label for="remove-bg" style="font-weight:bold; color:#dc3545;">自動去白底</label>
+                </div>
+            </div>
+            <div class="row">
+                <label>背景顏色 (漸層):</label>
+                <input type="color" id="bg-color-1" value="#e0f7fa">
+                <input type="color" id="bg-color-2" value="#80deea">
+            </div>
+            
+            <div class="row" style="margin-top: 15px; border-top: 1px solid #ccc; padding-top: 10px;">
+                <label>全破關卡後最終大圖:</label>
+                <input type="file" id="final-image-upload" accept="image/*">
+            </div>
+            <div class="row">
+                <label>最終大圖大小 (%):</label>
+                <input type="range" id="final-size-slider" min="10" max="100" value="80">
+                <span id="final-size-val">80%</span>
+            </div>
+        </div>
+
+        <div class="setting-group">
+            <h3>2. 遊戲參數</h3>
+            <div class="row">
+                <label>移動模式:</label>
+                <select id="move-mode">
+                    <option value="horizontal">橫向移動</option>
+                    <option value="vertical">縱向移動</option>
+                    <option value="random">隨機漫遊 (四面八方)</option>
+                </select>
+            </div>
+            <div class="row">
+                <label>移動速度:</label>
+                <input type="range" id="speed-slider" min="1" max="20" value="5">
+                <span id="speed-val">5</span>
+            </div>
+            <div class="row">
+                <label>需注視秒數:</label>
+                <input type="range" id="gaze-slider" min="0.5" max="5" step="0.5" value="2">
+                <span id="gaze-val">2 秒</span>
+            </div>
+            <div class="row">
+                <label>進行回合數:</label>
+                <input type="number" id="rounds-input" min="1" max="20" value="3" style="width: 60px;">
+            </div>
+        </div>
+
+        <div class="setting-group">
+            <h3>3. 音效與錄音設定</h3>
+            <div class="row">
+                <label>走動時提醒音效:</label>
+                <div class="audio-upload-group">
+                    <button id="record-reminder-btn" class="record-btn">⏺ 錄音</button>
+                    <span>或上傳:</span>
+                    <input type="file" id="reminder-sound-upload" accept="audio/*" style="width: 120px;">
+                </div>
+            </div>
+            <div class="row">
+                <label>單次回合成功音效:</label>
+                <div class="audio-upload-group">
+                    <button id="record-success-btn" class="record-btn">⏺ 錄音</button>
+                    <span>或上傳:</span>
+                    <input type="file" id="success-sound-upload" accept="audio/*" style="width: 120px;">
+                </div>
+            </div>
+            <div class="row">
+                <label>最終全破背景音效 (僅上傳):</label>
+                <input type="file" id="final-sound-upload" accept="audio/*">
+            </div>
+        </div>
+
+        <button id="start-btn" style="font-size: 24px; padding: 15px 40px; margin-top: 20px;">開始遊戲 🚀</button>
+    </div>
+
+    <div id="game-area">
+        <div id="emergency-reset" onclick="emergencyReset()" title="緊急重置回選單"></div>
+
+        <div id="target"></div>
+        <img id="success-popup" src="" alt="Success">
+        <div id="countdown-text">下一回合準備中... 5 秒</div>
+        <img id="final-complete-popup" src="" alt="Game Complete">
+        <canvas id="fireworks-canvas"></canvas>
+
+        <div id="replay-modal">
+            <h2>🎉 挑戰完成！休息一下吧！</h2>
+            <p>接下來想要進行什麼模式呢？</p>
+            <button class="btn-horizontal" onclick="replayGame('horizontal')">➡️ 再次挑戰：橫向移動</button>
+            <button class="btn-vertical" onclick="replayGame('vertical')">⬇️ 再次挑戰：縱向移動</button>
+            <button class="btn-random" onclick="replayGame('random')">🔀 再次挑戰：隨機漫遊</button>
+            <button class="btn-menu" onclick="backToMenu()">🔙 返回設定選單</button>
+        </div>
+    </div>
+
+    <script>
+        const UI = {
+            panel: document.getElementById('settings-panel'),
+            gameArea: document.getElementById('game-area'),
+            target: document.getElementById('target'),
+            popup: document.getElementById('success-popup'),
+            countdown: document.getElementById('countdown-text'),
+            finalPopup: document.getElementById('final-complete-popup'),
+            replayModal: document.getElementById('replay-modal'),
+            canvas: document.getElementById('fireworks-canvas'),
+            ctx: document.getElementById('fireworks-canvas').getContext('2d'),
+            startBtn: document.getElementById('start-btn'),
+            
+            reminderAudio: document.getElementById('reminder-audio'),
+            successAudio: document.getElementById('success-audio'),
+            finalAudio: document.getElementById('final-audio'),
+            glowEffect: document.getElementById('glow-effect'),
+            removeBg: document.getElementById('remove-bg')
+        };
+
+        const Config = {
+            targetImages: [],
+            finalCompleteImg: '',
+            imageMode: 'single', finalSize: 80,
+            size: 150, speed: 5, gazeTime: 2000, rounds: 3, mode: 'horizontal'
+        };
+
+        let GameState = {
+            currentRound: 1, x: 0, y: 0, dx: 0, dy: 0, angle: 0,
+            isMoving: false, isInvincible: false, gazeTimer: null, animationFrame: null,
+            particles: [], fireworkTimer: null, waitInterval: null, fireworkGenerator: null
+        };
+
+        // --- 全螢幕 API 處理 ---
+        function requestFullScreen() {
+            let el = document.documentElement;
+            let requestMethod = el.requestFullscreen || el.webkitRequestFullscreen || el.mozRequestFullScreen || el.msRequestFullscreen;
+            if (requestMethod) {
+                requestMethod.call(el).catch(err => console.log("全螢幕請求被忽略:", err));
+            }
+        }
+
+        function exitFullScreen() {
+            let el = document;
+            let requestMethod = el.exitFullscreen || el.webkitExitFullscreen || el.mozCancelFullScreen || el.msExitFullscreen;
+            if (requestMethod && (document.fullscreenElement || document.webkitFullscreenElement)) {
+                requestMethod.call(el).catch(()=>{});
+            }
+        }
+
+        // --- 錄音與音效上傳處理 ---
+        async function setupRecording(btnId, audioEl) {
+            let mediaRecorder; let audioChunks = [];
+            const btn = document.getElementById(btnId);
+            btn.addEventListener('click', async () => {
+                if (mediaRecorder && mediaRecorder.state === "recording") {
+                    mediaRecorder.stop();
+                    btn.textContent = "✅ 已錄製";
+                    btn.classList.remove('recording');
+                    btn.style.background = '#28a745';
+                } else {
+                    try {
+                        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                        mediaRecorder = new MediaRecorder(stream);
+                        mediaRecorder.start();
+                        audioChunks = [];
+                        btn.textContent = "⏹ 停止並儲存";
+                        btn.classList.add('recording');
+                        mediaRecorder.addEventListener("dataavailable", e => audioChunks.push(e.data));
+                        mediaRecorder.addEventListener("stop", () => {
+                            audioEl.src = URL.createObjectURL(new Blob(audioChunks));
+                        });
+                    } catch (err) { alert("無法存取麥克風，請使用右側上傳功能：" + err.message); }
+                }
+            });
+        }
+        setupRecording('record-reminder-btn', UI.reminderAudio);
+        setupRecording('record-success-btn', UI.successAudio);
+
+        // 處理音檔上傳
+        document.getElementById('reminder-sound-upload').addEventListener('change', (e) => {
+            if(e.target.files[0]) {
+                UI.reminderAudio.src = URL.createObjectURL(e.target.files[0]);
+                let btn = document.getElementById('record-reminder-btn');
+                btn.textContent = "✅ 已上傳"; btn.style.background = '#28a745'; btn.classList.remove('recording');
+            }
+        });
+        document.getElementById('success-sound-upload').addEventListener('change', (e) => {
+            if(e.target.files[0]) {
+                UI.successAudio.src = URL.createObjectURL(e.target.files[0]);
+                let btn = document.getElementById('record-success-btn');
+                btn.textContent = "✅ 已上傳"; btn.style.background = '#28a745'; btn.classList.remove('recording');
+            }
+        });
+        document.getElementById('final-sound-upload').addEventListener('change', (e) => {
+            if(e.target.files[0]) UI.finalAudio.src = URL.createObjectURL(e.target.files[0]);
+        });
+
+        // 參數更新與事件監聽
+        document.getElementById('size-slider').addEventListener('input', e => document.getElementById('size-val').textContent = e.target.value);
+        document.getElementById('speed-slider').addEventListener('input', e => document.getElementById('speed-val').textContent = e.target.value);
+        document.getElementById('gaze-slider').addEventListener('input', e => document.getElementById('gaze-val').textContent = e.target.value + " 秒");
+        document.getElementById('final-size-slider').addEventListener('input', e => document.getElementById('final-size-val').textContent = e.target.value + "%");
+
+        document.getElementById('image-upload').addEventListener('change', e => {
+            Config.targetImages = []; 
+            if (e.target.files.length > 0) {
+                for(let i = 0; i < e.target.files.length; i++) {
+                    Config.targetImages.push(URL.createObjectURL(e.target.files[i]));
+                }
+                document.getElementById('upload-status').textContent = `✅ 已成功上傳 ${e.target.files.length} 張圖片`;
+            } else {
+                document.getElementById('upload-status').textContent = `尚未上傳`;
+            }
+        });
+
+        document.getElementById('final-image-upload').addEventListener('change', e => {
+            if (e.target.files[0]) { Config.finalCompleteImg = URL.createObjectURL(e.target.files[0]); UI.finalPopup.src = Config.finalCompleteImg; }
+        });
+
+        function applyVisualEffects() {
+            UI.target.className = '';
+            if (UI.glowEffect.checked) UI.target.classList.add('effect-glow');
+            if (UI.removeBg.checked) UI.target.classList.add('effect-remove-bg');
+        }
+
+        // --- 遊戲啟動與重設 ---
+        UI.startBtn.addEventListener('click', () => {
+            if (Config.targetImages.length === 0) { alert("請先上傳至少一張追視圖案！"); return; }
+            if (!Config.finalCompleteImg) { alert("請上傳全破關卡後的最終大圖！"); return; }
+            
+            requestFullScreen(); 
+
+            [UI.reminderAudio, UI.successAudio, UI.finalAudio].forEach(a => { if(a.src) { a.play().catch(()=>{}); a.pause(); a.currentTime = 0; } });
+
+            Config.imageMode = document.getElementById('image-mode').value;
+            Config.size = parseInt(document.getElementById('size-slider').value);
+            Config.speed = parseInt(document.getElementById('speed-slider').value);
+            Config.gazeTime = parseFloat(document.getElementById('gaze-slider').value) * 1000;
+            Config.rounds = parseInt(document.getElementById('rounds-input').value);
+            Config.mode = document.getElementById('move-mode').value;
+            Config.finalSize = parseInt(document.getElementById('final-size-slider').value);
+            
+            UI.finalPopup.style.maxWidth = Config.finalSize + 'vw';
+            UI.finalPopup.style.maxHeight = Config.finalSize + 'vh';
+
+            const bg1 = document.getElementById('bg-color-1').value;
+            const bg2 = document.getElementById('bg-color-2').value;
+            UI.gameArea.style.background = `linear-gradient(135deg, ${bg1}, ${bg2})`;
+
+            UI.target.style.width = Config.size + 'px'; UI.target.style.height = Config.size + 'px';
+            applyVisualEffects();
+
+            UI.panel.style.display = 'none'; UI.gameArea.style.display = 'block';
+            resizeCanvas(); window.addEventListener('resize', resizeCanvas);
+            
+            GameState.currentRound = 1;
+            startRound();
+        });
+
+        function replayGame(newMode) {
+            Config.mode = newMode;
+            resetUI();
+            GameState.currentRound = 1;
+            startRound();
+        }
+
+        function backToMenu() {
+            resetUI();
+            UI.gameArea.style.display = 'none';
+            UI.panel.style.display = 'flex';
+            exitFullScreen(); 
+        }
+
+        function emergencyReset() {
+            cancelAnimationFrame(GameState.animationFrame);
+            clearTimeout(GameState.gazeTimer);
+            clearInterval(GameState.waitInterval);
+            GameState.isMoving = false;
+            backToMenu();
+        }
+
+        function resetUI() {
+            UI.replayModal.style.display = 'none';
+            UI.finalPopup.classList.remove('show');
+            UI.popup.classList.remove('show');
+            UI.countdown.style.display = 'none';
+            clearInterval(GameState.waitInterval); 
+            clearInterval(GameState.fireworkGenerator); 
+            if(UI.finalAudio.src) { UI.finalAudio.pause(); UI.finalAudio.currentTime = 0; }
+            if(UI.reminderAudio.src) { UI.reminderAudio.pause(); UI.reminderAudio.currentTime = 0; }
+            GameState.particles = []; UI.ctx.clearRect(0, 0, UI.canvas.width, UI.canvas.height);
+        }
+
+        // --- 遊戲邏輯 ---
+        function startRound() {
+            GameState.x = (window.innerWidth - Config.size) / 2;
+            GameState.y = (window.innerHeight - Config.size) / 2;
+            GameState.angle = Math.random() * Math.PI * 2;
+            
+            let currentImgUrl = Config.targetImages[0];
+            if (Config.imageMode === 'random' && Config.targetImages.length > 1) {
+                const randomIndex = Math.floor(Math.random() * Config.targetImages.length);
+                currentImgUrl = Config.targetImages[randomIndex];
+            }
+            UI.target.style.backgroundImage = `url(${currentImgUrl})`;
+            UI.popup.src = currentImgUrl; 
+
+            if(Config.mode === 'horizontal') { GameState.dx = Config.speed; GameState.dy = 0; }
+            else if(Config.mode === 'vertical') { GameState.dx = 0; GameState.dy = Config.speed; }
+            else { GameState.dx = Math.cos(GameState.angle)*Config.speed; GameState.dy = Math.sin(GameState.angle)*Config.speed; }
+
+            UI.target.style.left = GameState.x + 'px'; UI.target.style.top = GameState.y + 'px';
+            UI.target.style.display = 'block';
+            UI.popup.classList.remove('show');
+            UI.countdown.style.display = 'none';
+            
+            GameState.isMoving = true; 
+            GameState.isInvincible = true;
+            setTimeout(() => { GameState.isInvincible = false; }, 500);
+
+            if(UI.reminderAudio.src) { UI.reminderAudio.loop = true; UI.reminderAudio.play().catch(()=>{}); }
+            moveTarget();
+        }
+
+        function moveTarget() {
+            if (!GameState.isMoving) return;
+
+            if (Config.mode === 'random') {
+                GameState.angle += (Math.random() - 0.5) * 0.3;
+                GameState.dx = Math.cos(GameState.angle) * Config.speed;
+                GameState.dy = Math.sin(GameState.angle) * Config.speed;
+            }
+
+            GameState.x += GameState.dx; GameState.y += GameState.dy;
+
+            if (GameState.x <= 0) { GameState.x = 0; GameState.dx = Math.abs(GameState.dx); }
+            if (GameState.x >= window.innerWidth - Config.size) { GameState.x = window.innerWidth - Config.size; GameState.dx = -Math.abs(GameState.dx); }
+            if (GameState.y <= 0) { GameState.y = 0; GameState.dy = Math.abs(GameState.dy); }
+            if (GameState.y >= window.innerHeight - Config.size) { GameState.y = window.innerHeight - Config.size; GameState.dy = -Math.abs(GameState.dy); }
+
+            UI.target.style.left = GameState.x + 'px'; UI.target.style.top = GameState.y + 'px';
+            GameState.animationFrame = requestAnimationFrame(moveTarget);
+        }
+
+        UI.target.addEventListener('pointerenter', () => {
+            if(!GameState.isMoving || GameState.isInvincible) return; 
+            UI.target.classList.add('effect-looking');
+            GameState.gazeTimer = setTimeout(targetAcquired, Config.gazeTime);
+        });
+
+        UI.target.addEventListener('pointerleave', () => {
+            if(!GameState.isMoving || GameState.isInvincible) return; 
+            UI.target.classList.remove('effect-looking');
+            applyVisualEffects();
+            clearTimeout(GameState.gazeTimer);
+        });
+
+        function targetAcquired() {
+            if (!GameState.isMoving) return; 
+            
+            GameState.isMoving = false; 
+            cancelAnimationFrame(GameState.animationFrame);
+            clearTimeout(GameState.gazeTimer);
+            
+            UI.target.classList.remove('effect-looking');
+            UI.target.style.display = 'none';
+
+            if(UI.reminderAudio.src) { UI.reminderAudio.pause(); UI.reminderAudio.currentTime = 0; }
+
+            if (GameState.currentRound < Config.rounds) {
+                if (UI.successAudio.src) { UI.successAudio.currentTime = 0; UI.successAudio.play().catch(()=>{}); }
+                UI.popup.classList.add('show');
+                
+                let timeLeft = 5;
+                UI.countdown.textContent = `下一回合準備中... ${timeLeft} 秒`;
+                UI.countdown.style.display = 'block';
+
+                GameState.waitInterval = setInterval(() => {
+                    timeLeft--;
+                    if(timeLeft > 0) {
+                        UI.countdown.textContent = `下一回合準備中... ${timeLeft} 秒`;
+                    } else {
+                        clearInterval(GameState.waitInterval);
+                        GameState.currentRound++;
+                        startRound(); 
+                    }
+                }, 1000);
+            } else {
+                gameComplete();
+            }
+        }
+
+        function gameComplete() {
+            UI.popup.classList.remove('show'); 
+            UI.finalPopup.classList.add('show');
+            if (UI.finalAudio.src) { UI.finalAudio.currentTime = 0; UI.finalAudio.play().catch(()=>{}); }
+
+            GameState.fireworkGenerator = setInterval(() => {
+                createFireworks(window.innerWidth * (0.2 + Math.random()*0.6), window.innerHeight * (0.2 + Math.random()*0.6));
+                startFireworksAnimation();
+            }, 800);
+            
+            let timeLeft = 10;
+            UI.countdown.textContent = `🎉 恭喜過關！等待 ${timeLeft} 秒...`;
+            UI.countdown.style.display = 'block';
+
+            GameState.waitInterval = setInterval(() => {
+                timeLeft--;
+                if(timeLeft > 0) {
+                    UI.countdown.textContent = `🎉 恭喜過關！等待 ${timeLeft} 秒...`;
+                } else {
+                    clearInterval(GameState.waitInterval);
+                    UI.countdown.style.display = 'none';
+                    UI.replayModal.style.display = 'flex'; 
+                }
+            }, 1000);
+        }
+
+        // --- 煙花系統 ---
+        function resizeCanvas() { UI.canvas.width = window.innerWidth; UI.canvas.height = window.innerHeight; }
+        class Particle {
+            constructor(x, y) {
+                this.x = x; this.y = y;
+                this.vx = (Math.random() - 0.5) * 20; this.vy = (Math.random() - 0.5) * 20;
+                this.life = 100; this.color = `hsl(${Math.random() * 360}, 100%, 50%)`; this.size = Math.random() * 5 + 2;
+            }
+            update() { this.x += this.vx; this.y += this.vy; this.vy += 0.5; this.life -= 2; }
+            draw(ctx) { ctx.fillStyle = this.color; ctx.beginPath(); ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2); ctx.fill(); }
+        }
+        function createFireworks(x, y) { for (let i = 0; i < 100; i++) GameState.particles.push(new Particle(x, y)); }
+        function startFireworksAnimation() { if(!GameState.fireworkTimer) animateFireworks(); }
+        function animateFireworks() {
+            UI.ctx.clearRect(0, 0, UI.canvas.width, UI.canvas.height);
+            for (let i = GameState.particles.length - 1; i >= 0; i--) {
+                let p = GameState.particles[i]; p.update(); p.draw(UI.ctx);
+                if (p.life <= 0) GameState.particles.splice(i, 1);
+            }
+            if (GameState.particles.length > 0) GameState.fireworkTimer = requestAnimationFrame(animateFireworks);
+            else GameState.fireworkTimer = null;
+        }
+    </script>
+</body>
+</html>
