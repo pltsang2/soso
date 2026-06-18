@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <title>眼動儀追視遊戲 V13</title>
+    <title>眼動儀追視遊戲 V14</title>
     <style>
         body, html {
             margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -114,8 +114,9 @@
     <audio id="success-audio" style="display:none;"></audio>
     <audio id="final-audio" style="display:none;"></audio>
 
+    <!-- 設定面板 -->
     <div id="settings-panel">
-        <h1>👁️ 眼動儀追視遊戲 V13</h1>
+        <h1>👁️ 眼動儀追視遊戲 V14</h1>
         
         <div class="setting-group">
             <h3>1. 視覺設定</h3>
@@ -215,7 +216,9 @@
         <button id="start-btn" style="font-size: 24px; padding: 15px 40px; margin-top: 20px;">開始遊戲 🚀</button>
     </div>
 
+    <!-- 遊戲區域 -->
     <div id="game-area">
+        <!-- 緊急重置按鈕 -->
         <div id="emergency-reset" onclick="emergencyReset()" title="緊急重置回選單"></div>
 
         <div id="target"></div>
@@ -264,7 +267,8 @@
         let GameState = {
             currentRound: 1, x: 0, y: 0, dx: 0, dy: 0, angle: 0,
             isMoving: false, isInvincible: false, gazeTimer: null, animationFrame: null,
-            particles: [], fireworkTimer: null, waitInterval: null, fireworkGenerator: null
+            particles: [], fireworkTimer: null, waitInterval: null, fireworkGenerator: null,
+            audioFadeInterval: null
         };
 
         // --- 全螢幕 API 處理 ---
@@ -423,6 +427,8 @@
             UI.countdown.style.display = 'none';
             clearInterval(GameState.waitInterval); 
             clearInterval(GameState.fireworkGenerator); 
+            clearInterval(GameState.audioFadeInterval);
+            UI.finalAudio.volume = 1.0; // 重置音量
             if(UI.finalAudio.src) { UI.finalAudio.pause(); UI.finalAudio.currentTime = 0; }
             if(UI.reminderAudio.src) { UI.reminderAudio.pause(); UI.reminderAudio.currentTime = 0; }
             GameState.particles = []; UI.ctx.clearRect(0, 0, UI.canvas.width, UI.canvas.height);
@@ -530,7 +536,25 @@
         function gameComplete() {
             UI.popup.classList.remove('show'); 
             UI.finalPopup.classList.add('show');
-            if (UI.finalAudio.src) { UI.finalAudio.currentTime = 0; UI.finalAudio.play().catch(()=>{}); }
+            
+            // 處理最終音樂的 5秒 Fade-in 漸入效果
+            if (UI.finalAudio.src) { 
+                UI.finalAudio.currentTime = 0; 
+                UI.finalAudio.volume = 0; // 起始音量設為 0
+                UI.finalAudio.play().catch(()=>{}); 
+                
+                let fadeDuration = 5000; // 5秒
+                let stepTime = 100;      // 每 0.1 秒增加一次音量
+                let volumeStep = 1.0 / (fadeDuration / stepTime);
+
+                GameState.audioFadeInterval = setInterval(() => {
+                    if (UI.finalAudio.volume < 1.0) {
+                        UI.finalAudio.volume = Math.min(1.0, UI.finalAudio.volume + volumeStep);
+                    } else {
+                        clearInterval(GameState.audioFadeInterval);
+                    }
+                }, stepTime);
+            }
 
             GameState.fireworkGenerator = setInterval(() => {
                 createFireworks(window.innerWidth * (0.2 + Math.random()*0.6), window.innerHeight * (0.2 + Math.random()*0.6));
